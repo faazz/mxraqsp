@@ -1,0 +1,50 @@
+/**
+ * FMP Advanced Charts - Admin Styles
+ *
+ * @package FMP_Advanced_Charts
+ */
+
+/* Settings Page */
+.fmp-settings-page {
+    max-width: 1200px;
+}
+
+.nav-tab-wrapper {
+    margin-bottom: 20px;
+}
+
+.fmp-code-examples {
+    background: #f8f9fa;
+    border: 1px solid #e1e3eb;
+    border-radius: 6px;
+    padding: 20px;
+    margin-top: 20px;
+}
+
+.fmp-code-examples h4 {
+    margin-top: 0;
+    margin-bottom: 8px;
+    font-size: 14px;
+    color: #555;
+}
+
+.fmp-code-examples code {
+    display: block;
+    padding: 12px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-bottom: 16px;
+    font-family: 'Monaco', 'Courier New', monospace;
+    font-size: 13px;
+    overflow-x: auto;
+}
+
+/* Statistics Table */
+.widefat thead th {
+    padding: 10px;
+}
+
+.widefat tbody td {
+    padding: 10px;
+}
