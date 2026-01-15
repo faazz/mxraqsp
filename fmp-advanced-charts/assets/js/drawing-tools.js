@@ -183,12 +183,13 @@
          * Create trend line
          */
         createTrendLine() {
-            // Trend line implementation
+            // Simplified trend line using line series with markers
             const lineSeries = this.chart.chart.addLineSeries({
                 color: '#2962FF',
                 lineWidth: 2,
                 priceLineVisible: false,
-                lastValueVisible: false
+                lastValueVisible: false,
+                crosshairMarkerVisible: false
             });
 
             return lineSeries;
@@ -198,17 +199,17 @@
          * Create horizontal line
          */
         createHorizontalLine() {
-            // Horizontal line implementation
-            const priceLine = {
-                price: 0, // Will be set based on y-coordinate
-                color: '#2962FF',
-                lineWidth: 2,
-                lineStyle: 0,
-                axisLabelVisible: true,
-                title: 'Horizontal Line'
-            };
+            // Create a horizontal price line on the main series
+            if (!this.chart.series) {
+                alert('Chart not ready for drawing');
+                return null;
+            }
 
-            return priceLine;
+            // We'll add the price line when the user clicks
+            return {
+                type: 'horizontal',
+                ready: true
+            };
         }
 
         /**

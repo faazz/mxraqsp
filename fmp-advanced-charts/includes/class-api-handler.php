@@ -119,11 +119,42 @@ class FMP_Advanced_Charts_API_Handler {
         $intraday_timeframes = array('1min', '5min', '15min', '30min', '1hour', '4hour');
 
         if (in_array($timeframe, $intraday_timeframes)) {
-            // Intraday data
+            // Intraday data - limit to current/previous trading day
             $endpoint = "historical-chart/{$timeframe}/{$symbol}";
-            if ($from && $to) {
-                $endpoint .= "?from={$from}&to={$to}";
+
+            // If no dates specified, use current/previous day
+            if (empty($from) || empty($to)) {
+                $now = new DateTime('now', new DateTimeZone('America/New_York'));
+                $current_hour = (int)$now->format('H');
+
+                // If before 9:30 AM ET or on weekend, use previous trading day
+                if ($current_hour < 9 || $now->format('N') >= 6) {
+                    // Get previous trading day
+                    $to_date = clone $now;
+                    if ($now->format('N') == 6) {
+                        // Saturday - go back to Friday
+                        $to_date->modify('-1 day');
+                    } elseif ($now->format('N') == 7) {
+                        // Sunday - go back to Friday
+                        $to_date->modify('-2 days');
+                    } elseif ($current_hour < 9) {
+                        // Before market open - use previous day
+                        $to_date->modify('-1 day');
+                        // Check if that was weekend
+                        if ($to_date->format('N') >= 6) {
+                            $to_date->modify('last Friday');
+                        }
+                    }
+                    $to = $to_date->format('Y-m-d');
+                } else {
+                    // Use today
+                    $to = $now->format('Y-m-d');
+                }
+
+                $from = $to; // Same day for intraday
             }
+
+            $endpoint .= "?from={$from}&to={$to}";
         } else {
             // Daily or longer timeframes
             $endpoint = "historical-price-full/{$symbol}";

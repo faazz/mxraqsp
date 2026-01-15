@@ -31,6 +31,7 @@
          * Initialize chart
          */
         init() {
+            this.loadPreferences();
             this.createChart();
             this.bindEvents();
             this.loadData();
@@ -347,6 +348,137 @@
         }
 
         /**
+         * Add indicator by name
+         */
+        addIndicatorByName(name) {
+            if (!this.data || this.data.length === 0) return;
+
+            switch(name) {
+                case 'SMA':
+                    this.addSMA(20);
+                    break;
+                case 'EMA':
+                    this.addEMA(20);
+                    break;
+                case 'WMA':
+                    this.addSMA(20); // Simplified to SMA for now
+                    break;
+                case 'RSI':
+                    this.addRSI(14);
+                    break;
+                case 'MACD':
+                    this.addMACD();
+                    break;
+                case 'BB':
+                    this.addBollingerBands(20, 2);
+                    break;
+                case 'STOCH':
+                case 'CCI':
+                    alert('This indicator will be added in the next update');
+                    break;
+            }
+
+            // Auto-save preferences
+            if (this.config.saveState) {
+                this.savePreferences();
+            }
+        }
+
+        /**
+         * Remove indicator by name
+         */
+        removeIndicatorByName(name) {
+            const indicatorIndex = this.indicators.findIndex(ind => ind.type === name);
+
+            if (indicatorIndex >= 0) {
+                const indicator = this.indicators[indicatorIndex];
+
+                if (Array.isArray(indicator.series)) {
+                    indicator.series.forEach(series => {
+                        this.chart.removeSeries(series);
+                    });
+                } else if (indicator.series) {
+                    this.chart.removeSeries(indicator.series);
+                }
+
+                this.indicators.splice(indicatorIndex, 1);
+
+                // Auto-save preferences
+                if (this.config.saveState) {
+                    this.savePreferences();
+                }
+            }
+        }
+
+        /**
+         * Add RSI indicator
+         */
+        addRSI(period) {
+            if (typeof window.FMPIndicators === 'undefined') return;
+
+            const rsiData = window.FMPIndicators.calculateRSI(this.data, period);
+
+            const rsiSeries = this.chart.addLineSeries({
+                color: '#9C27B0',
+                lineWidth: 2,
+                priceScaleId: 'rsi',
+                title: `RSI(${period})`
+            });
+
+            rsiSeries.setData(rsiData);
+
+            // Add reference lines at 30 and 70
+            rsiSeries.createPriceLine({
+                price: 70,
+                color: '#ef5350',
+                lineWidth: 1,
+                lineStyle: 2,
+                axisLabelVisible: false,
+            });
+
+            rsiSeries.createPriceLine({
+                price: 30,
+                color: '#26a69a',
+                lineWidth: 1,
+                lineStyle: 2,
+                axisLabelVisible: false,
+            });
+
+            this.indicators.push({ type: 'RSI', period, series: rsiSeries });
+        }
+
+        /**
+         * Add MACD indicator
+         */
+        addMACD() {
+            if (typeof window.FMPIndicators === 'undefined') return;
+
+            const macdData = window.FMPIndicators.calculateMACD(this.data, 12, 26, 9);
+
+            const macdSeries = this.chart.addLineSeries({
+                color: '#2962FF',
+                lineWidth: 2,
+                priceScaleId: 'macd',
+                title: 'MACD'
+            });
+
+            const signalSeries = this.chart.addLineSeries({
+                color: '#FF6D00',
+                lineWidth: 2,
+                priceScaleId: 'macd',
+                title: 'Signal'
+            });
+
+            macdSeries.setData(macdData.macd);
+            signalSeries.setData(macdData.signal);
+
+            this.indicators.push({
+                type: 'MACD',
+                series: [macdSeries, signalSeries]
+            });
+        }
+
+        /**
          * Calculate Simple Moving Average
          */
         calculateSMA(data, period) {
@@ -490,6 +622,11 @@
 
             // Update chart with existing data
             this.updateChart();
+
+            // Auto-save preferences
+            if (this.config.saveState) {
+                this.savePreferences();
+            }
         }
 
         /**
@@ -500,6 +637,11 @@
 
             this.currentTimeframe = newTimeframe;
             this.loadData();
+
+            // Auto-save preferences
+            if (this.config.saveState) {
+                this.savePreferences();
+            }
         }
 
         /**
@@ -541,11 +683,25 @@
             // Indicators button
             wrapper.find('.fmp-indicators-btn').on('click', () => {
                 wrapper.find('.fmp-indicator-panel').toggle();
+                wrapper.find('.fmp-drawing-panel').hide();
+            });
+
+            // Indicator checkboxes
+            wrapper.find('.fmp-indicator-checkbox').on('change', (e) => {
+                const checkbox = $(e.currentTarget);
+                const indicator = checkbox.val();
+
+                if (checkbox.is(':checked')) {
+                    this.addIndicatorByName(indicator);
+                } else {
+                    this.removeIndicatorByName(indicator);
+                }
             });
 
             // Drawing tools button
             wrapper.find('.fmp-drawings-btn').on('click', () => {
                 wrapper.find('.fmp-drawing-panel').toggle();
+                wrapper.find('.fmp-indicator-panel').hide();
             });
 
             // Panel close buttons
@@ -585,8 +741,42 @@
          * Take screenshot of chart
          */
         takeScreenshot() {
-            // Implementation would use html2canvas or similar library
-            alert('Screenshot functionality requires additional library. Coming soon!');
+            try {
+                // Get the chart canvas
+                const canvas = this.container.querySelector('canvas');
+
+                if (!canvas) {
+                    alert('Unable to capture chart. Please try again.');
+                    return;
+                }
+
+                // Convert canvas to blob
+                canvas.toBlob((blob) => {
+                    if (!blob) {
+                        alert('Failed to generate screenshot.');
+                        return;
+                    }
+
+                    // Create download link
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+                    const filename = `${this.config.symbol}_${this.currentTimeframe}_${timestamp}.png`;
+
+                    link.href = url;
+                    link.download = filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+
+                    // Clean up
+                    setTimeout(() => URL.revokeObjectURL(url), 100);
+                }, 'image/png');
+
+            } catch (error) {
+                console.error('Screenshot error:', error);
+                alert('Failed to take screenshot: ' + error.message);
+            }
         }
 
         /**
@@ -611,9 +801,75 @@
         }
 
         /**
+         * Save user preferences
+         */
+        savePreferences() {
+            const preferences = {
+                symbol: this.config.symbol,
+                type: this.currentType,
+                timeframe: this.currentTimeframe,
+                theme: this.theme,
+                indicators: this.indicators.map(ind => ({
+                    type: ind.type,
+                    period: ind.period
+                }))
+            };
+
+            const key = `fmp_chart_pref_${this.config.symbol}`;
+            localStorage.setItem(key, JSON.stringify(preferences));
+
+            // Also save global preferences
+            const globalPrefs = {
+                lastType: this.currentType,
+                lastTimeframe: this.currentTimeframe,
+                lastTheme: this.theme
+            };
+            localStorage.setItem('fmp_chart_global_pref', JSON.stringify(globalPrefs));
+        }
+
+        /**
+         * Load user preferences
+         */
+        loadPreferences() {
+            if (!this.config.saveState) return;
+
+            const key = `fmp_chart_pref_${this.config.symbol}`;
+            const saved = localStorage.getItem(key);
+
+            if (saved) {
+                try {
+                    const preferences = JSON.parse(saved);
+
+                    // Apply saved preferences
+                    if (preferences.type && preferences.type !== this.currentType) {
+                        this.currentType = preferences.type;
+                    }
+
+                    if (preferences.timeframe && preferences.timeframe !== this.currentTimeframe) {
+                        this.currentTimeframe = preferences.timeframe;
+                    }
+
+                    // Apply saved indicators after data is loaded
+                    if (preferences.indicators && preferences.indicators.length > 0) {
+                        preferences.indicators.forEach(ind => {
+                            this.addIndicatorByName(ind.type);
+                        });
+                    }
+                } catch (e) {
+                    console.error('Failed to load preferences:', e);
+                }
+            }
+        }
+
+        /**
          * Destroy chart instance
          */
         destroy() {
+            // Save preferences before destroying
+            if (this.config.saveState) {
+                this.savePreferences();
+            }
+
             if (this.chart) {
                 this.chart.remove();
                 this.chart = null;
@@ -636,8 +892,31 @@
                 saveState: $(this).data('save-state') || false
             };
 
-            // Store chart instance
-            $(this).data('chartInstance', new FMPChartManager(containerId, config));
+            // Create and store chart instance
+            const chartInstance = new FMPChartManager(containerId, config);
+            $(this).data('chartInstance', chartInstance);
+
+            // Initialize drawing tools if enabled
+            const wrapper = $(this).closest('.fmp-chart-wrapper');
+            if (wrapper.find('.fmp-drawing-panel').length > 0) {
+                if (typeof FMPDrawingTools !== 'undefined') {
+                    const drawingTools = new FMPDrawingTools(chartInstance);
+                    $(this).data('drawingTools', drawingTools);
+
+                    // Bind drawing tool buttons
+                    wrapper.find('.fmp-drawing-tool').on('click', function() {
+                        const tool = $(this).data('tool');
+                        drawingTools.setActiveTool(tool);
+                        wrapper.find('.fmp-drawing-panel').hide();
+                    });
+
+                    wrapper.find('.fmp-clear-drawings').on('click', function() {
+                        if (confirm('Clear all drawings?')) {
+                            drawingTools.clearAllDrawings();
+                        }
+                    });
+                }
+            }
         });
     });
 
