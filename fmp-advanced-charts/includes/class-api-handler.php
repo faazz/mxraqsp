@@ -15,9 +15,14 @@ if (!defined('ABSPATH')) {
 class FMP_Advanced_Charts_API_Handler {
 
     /**
-     * API base URL.
+     * API base URL - Stable endpoints.
      */
-    private $api_base_url = 'https://financialmodelingprep.com/api/v3/';
+    private $api_base_url = 'https://financialmodelingprep.com/stable/';
+
+    /**
+     * Legacy API base URL (fallback for endpoints not in stable).
+     */
+    private $api_base_url_legacy = 'https://financialmodelingprep.com/api/v3/';
 
     /**
      * API key.
@@ -119,8 +124,8 @@ class FMP_Advanced_Charts_API_Handler {
         $intraday_timeframes = array('1min', '5min', '15min', '30min', '1hour', '4hour');
 
         if (in_array($timeframe, $intraday_timeframes)) {
-            // Intraday data - limit to current/previous trading day
-            $endpoint = "historical-chart/{$timeframe}/{$symbol}";
+            // Intraday data - Use stable endpoint format
+            $endpoint = "historical-chart/{$timeframe}?symbol={$symbol}";
 
             // If no dates specified, use current/previous day
             if (empty($from) || empty($to)) {
@@ -154,12 +159,15 @@ class FMP_Advanced_Charts_API_Handler {
                 $from = $to; // Same day for intraday
             }
 
-            $endpoint .= "?from={$from}&to={$to}";
-        } else {
-            // Daily or longer timeframes
-            $endpoint = "historical-price-full/{$symbol}";
+            // Add date range if specified
             if ($from && $to) {
-                $endpoint .= "?from={$from}&to={$to}";
+                $endpoint .= "&from={$from}&to={$to}";
+            }
+        } else {
+            // Daily/EOD data - Use stable endpoint format
+            $endpoint = "historical-price-eod/full?symbol={$symbol}";
+            if ($from && $to) {
+                $endpoint .= "&from={$from}&to={$to}";
             }
         }
 
@@ -220,7 +228,7 @@ class FMP_Advanced_Charts_API_Handler {
         }
 
         $endpoint = "quote/{$symbol}";
-        $response = $this->make_request($endpoint);
+        $response = $this->make_request($endpoint, array(), true); // Use legacy for quote
 
         if (is_wp_error($response)) {
             return $response;
@@ -252,7 +260,7 @@ class FMP_Advanced_Charts_API_Handler {
             return $cached_data;
         }
 
-        $endpoint = "profile/{$symbol}";
+        $endpoint = "profile/symbol?symbol={$symbol}";
         $response = $this->make_request($endpoint);
 
         if (is_wp_error($response)) {
@@ -287,7 +295,7 @@ class FMP_Advanced_Charts_API_Handler {
         }
 
         $endpoint = "search?query={$query}&limit={$limit}";
-        $response = $this->make_request($endpoint);
+        $response = $this->make_request($endpoint, array(), true); // Use legacy for search
 
         if (is_wp_error($response)) {
             return $response;
@@ -313,7 +321,7 @@ class FMP_Advanced_Charts_API_Handler {
             return $cached_data;
         }
 
-        $endpoint = 'stock/list';
+        $endpoint = 'company-symbols-list';
         $response = $this->make_request($endpoint);
 
         if (is_wp_error($response)) {
@@ -327,13 +335,76 @@ class FMP_Advanced_Charts_API_Handler {
     }
 
     /**
+     * Get technical indicator data from API.
+     *
+     * @param string $indicator Indicator type (sma, ema, rsi, etc.).
+     * @param string $symbol Stock ticker symbol.
+     * @param int $period_length Period length for calculation.
+     * @param string $timeframe Timeframe (1min, 5min, 15min, 30min, 1hour, 4hour, 1day).
+     * @return array|WP_Error
+     */
+    public function get_technical_indicator($indicator, $symbol, $period_length = 14, $timeframe = '1day') {
+        $symbol = strtoupper(sanitize_text_field($symbol));
+        $indicator = strtolower(sanitize_text_field($indicator));
+
+        // Check cache first
+        $cache_key = $this->get_cache_key('indicator', $indicator, $symbol, $period_length, $timeframe);
+        $cached_data = $this->get_from_cache($cache_key);
+
+        if ($cached_data !== false) {
+            return $cached_data;
+        }
+
+        // Available indicators in stable API
+        $available_indicators = array('sma', 'ema', 'wma', 'dema', 'tema', 'rsi', 'williams', 'adx', 'standarddeviation');
+
+        if (!in_array($indicator, $available_indicators)) {
+            return new WP_Error('indicator_not_available', sprintf(__('Indicator %s not available in API', 'fmp-advanced-charts'), $indicator));
+        }
+
+        $endpoint = "technical-indicators/{$indicator}?symbol={$symbol}&periodLength={$period_length}&timeframe={$timeframe}";
+        $response = $this->make_request($endpoint);
+
+        if (is_wp_error($response)) {
+            return $response;
+        }
+
+        // Cache indicator data (cache duration depends on timeframe)
+        $cache_duration = $this->get_indicator_cache_duration($timeframe);
+        $this->save_to_cache($cache_key, $response, $cache_duration);
+
+        return $response;
+    }
+
+    /**
+     * Get cache duration for indicators based on timeframe.
+     *
+     * @param string $timeframe Timeframe.
+     * @return int Cache duration in seconds.
+     */
+    private function get_indicator_cache_duration($timeframe) {
+        $durations = array(
+            '1min' => 60,        // 1 minute
+            '5min' => 300,       // 5 minutes
+            '15min' => 900,      // 15 minutes
+            '30min' => 1800,     // 30 minutes
+            '1hour' => 3600,     // 1 hour
+            '4hour' => 14400,    // 4 hours
+            '1day' => 86400      // 24 hours
+        );
+
+        return isset($durations[$timeframe]) ? $durations[$timeframe] : 3600;
+    }
+
+    /**
      * Make API request with rate limiting and error handling.
      *
      * @param string $endpoint API endpoint.
      * @param array $args Additional arguments.
+     * @param bool $use_legacy Use legacy API base URL.
      * @return array|WP_Error
      */
-    private function make_request($endpoint, $args = array()) {
+    private function make_request($endpoint, $args = array(), $use_legacy = false) {
         if (!$this->has_api_key()) {
             return new WP_Error('no_api_key', __('API key not configured', 'fmp-advanced-charts'));
         }
@@ -343,9 +414,10 @@ class FMP_Advanced_Charts_API_Handler {
             return new WP_Error('rate_limit', __('API rate limit exceeded. Please try again later.', 'fmp-advanced-charts'));
         }
 
-        // Build URL
+        // Build URL - use legacy or stable base URL
+        $base_url = $use_legacy ? $this->api_base_url_legacy : $this->api_base_url;
         $separator = (strpos($endpoint, '?') !== false) ? '&' : '?';
-        $url = $this->api_base_url . $endpoint . $separator . 'apikey=' . $this->api_key;
+        $url = $base_url . $endpoint . $separator . 'apikey=' . $this->api_key;
 
         // Make request with retry logic
         $max_retries = 3;

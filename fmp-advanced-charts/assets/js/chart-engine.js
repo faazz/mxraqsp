@@ -258,6 +258,52 @@
         }
 
         /**
+         * Fetch indicator data from API
+         */
+        fetchIndicatorFromAPI(indicator, period) {
+            return new Promise((resolve, reject) => {
+                $.ajax({
+                    url: fmpChartsConfig.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'fmp_get_indicator',
+                        nonce: fmpChartsConfig.nonce,
+                        symbol: this.config.symbol,
+                        indicator: indicator,
+                        period: period,
+                        timeframe: this.currentTimeframe
+                    },
+                    success: (response) => {
+                        if (response.success && response.data) {
+                            resolve(response.data);
+                        } else {
+                            reject(new Error(response.data?.message || 'Failed to load indicator'));
+                        }
+                    },
+                    error: (xhr, status, error) => {
+                        reject(new Error('Network error: ' + error));
+                    }
+                });
+            });
+        }
+
+        /**
+         * Format indicator data from API response to chart format
+         */
+        formatIndicatorData(data) {
+            // FMP returns array of objects with date and value
+            // The value field name varies by indicator (e.g., 'sma', 'ema', 'rsi')
+            return data.map(item => {
+                // Find the value field (it's not 'date')
+                const valueKey = Object.keys(item).find(k => k !== 'date');
+                return {
+                    time: new Date(item.date).getTime() / 1000, // Convert to UNIX timestamp
+                    value: parseFloat(item[valueKey])
+                };
+            });
+        }
+
+        /**
          * Apply technical indicators
          */
         applyIndicators(indicators) {
@@ -268,6 +314,9 @@
                         break;
                     case 'EMA':
                         this.addEMA(20);
+                        break;
+                    case 'WMA':
+                        this.addWMA(20);
                         break;
                     case 'RSI':
                         this.addRSI(14);
@@ -283,67 +332,184 @@
         }
 
         /**
-         * Add Simple Moving Average
+         * Add Simple Moving Average - Fetch from API
          */
         addSMA(period) {
-            const smaData = this.calculateSMA(this.data, period);
-            const smaSeries = this.chart.addLineSeries({
-                color: '#2196F3',
-                lineWidth: 2,
-                title: `SMA(${period})`
+            this.fetchIndicatorFromAPI('sma', period).then(data => {
+                if (data && data.length > 0) {
+                    const smaSeries = this.chart.addLineSeries({
+                        color: '#2196F3',
+                        lineWidth: 2,
+                        title: `SMA(${period})`
+                    });
+                    smaSeries.setData(this.formatIndicatorData(data));
+                    this.indicators.push({ type: 'SMA', period, series: smaSeries });
+                }
+            }).catch(error => {
+                console.error('Failed to fetch SMA:', error);
+                // Fallback to client-side calculation
+                const smaData = this.calculateSMA(this.data, period);
+                const smaSeries = this.chart.addLineSeries({
+                    color: '#2196F3',
+                    lineWidth: 2,
+                    title: `SMA(${period})`
+                });
+                smaSeries.setData(smaData);
+                this.indicators.push({ type: 'SMA', period, series: smaSeries });
             });
-            smaSeries.setData(smaData);
-            this.indicators.push({ type: 'SMA', period, series: smaSeries });
         }
 
         /**
-         * Add Exponential Moving Average
+         * Add Exponential Moving Average - Fetch from API
          */
         addEMA(period) {
-            const emaData = this.calculateEMA(this.data, period);
-            const emaSeries = this.chart.addLineSeries({
-                color: '#FF6D00',
-                lineWidth: 2,
-                title: `EMA(${period})`
+            this.fetchIndicatorFromAPI('ema', period).then(data => {
+                if (data && data.length > 0) {
+                    const emaSeries = this.chart.addLineSeries({
+                        color: '#FF6D00',
+                        lineWidth: 2,
+                        title: `EMA(${period})`
+                    });
+                    emaSeries.setData(this.formatIndicatorData(data));
+                    this.indicators.push({ type: 'EMA', period, series: emaSeries });
+                }
+            }).catch(error => {
+                console.error('Failed to fetch EMA:', error);
+                // Fallback to client-side calculation
+                const emaData = this.calculateEMA(this.data, period);
+                const emaSeries = this.chart.addLineSeries({
+                    color: '#FF6D00',
+                    lineWidth: 2,
+                    title: `EMA(${period})`
+                });
+                emaSeries.setData(emaData);
+                this.indicators.push({ type: 'EMA', period, series: emaSeries });
             });
-            emaSeries.setData(emaData);
-            this.indicators.push({ type: 'EMA', period, series: emaSeries });
         }
 
         /**
-         * Add Bollinger Bands
+         * Add Weighted Moving Average - Fetch from API
          */
-        addBollingerBands(period, stdDev) {
-            const bbData = this.calculateBollingerBands(this.data, period, stdDev);
-
-            const upperSeries = this.chart.addLineSeries({
-                color: '#9C27B0',
-                lineWidth: 1,
-                title: `BB Upper(${period})`
+        addWMA(period) {
+            this.fetchIndicatorFromAPI('wma', period).then(data => {
+                if (data && data.length > 0) {
+                    const wmaSeries = this.chart.addLineSeries({
+                        color: '#4CAF50',
+                        lineWidth: 2,
+                        title: `WMA(${period})`
+                    });
+                    wmaSeries.setData(this.formatIndicatorData(data));
+                    this.indicators.push({ type: 'WMA', period, series: wmaSeries });
+                }
+            }).catch(error => {
+                console.error('Failed to fetch WMA:', error);
+                // Fallback to SMA as approximation
+                const smaData = this.calculateSMA(this.data, period);
+                const wmaSeries = this.chart.addLineSeries({
+                    color: '#4CAF50',
+                    lineWidth: 2,
+                    title: `WMA(${period})`
+                });
+                wmaSeries.setData(smaData);
+                this.indicators.push({ type: 'WMA', period, series: wmaSeries });
             });
+        }
 
-            const middleSeries = this.chart.addLineSeries({
-                color: '#9C27B0',
-                lineWidth: 1,
-                lineStyle: 2,
-                title: `BB Middle(${period})`
-            });
+        /**
+         * Add Bollinger Bands - Fetch SMA and StandardDeviation from API
+         */
+        addBollingerBands(period, stdDevMultiplier) {
+            // Fetch both SMA and Standard Deviation from API
+            Promise.all([
+                this.fetchIndicatorFromAPI('sma', period),
+                this.fetchIndicatorFromAPI('standarddeviation', period)
+            ]).then(([smaData, stdData]) => {
+                if (smaData && smaData.length > 0 && stdData && stdData.length > 0) {
+                    // Format both datasets
+                    const smaFormatted = this.formatIndicatorData(smaData);
+                    const stdFormatted = this.formatIndicatorData(stdData);
 
-            const lowerSeries = this.chart.addLineSeries({
-                color: '#9C27B0',
-                lineWidth: 1,
-                title: `BB Lower(${period})`
-            });
+                    // Calculate upper and lower bands
+                    const upperData = [];
+                    const lowerData = [];
 
-            upperSeries.setData(bbData.upper);
-            middleSeries.setData(bbData.middle);
-            lowerSeries.setData(bbData.lower);
+                    smaFormatted.forEach((smaPoint, index) => {
+                        if (index < stdFormatted.length) {
+                            upperData.push({
+                                time: smaPoint.time,
+                                value: smaPoint.value + (stdDevMultiplier * stdFormatted[index].value)
+                            });
+                            lowerData.push({
+                                time: smaPoint.time,
+                                value: smaPoint.value - (stdDevMultiplier * stdFormatted[index].value)
+                            });
+                        }
+                    });
 
-            this.indicators.push({
-                type: 'BB',
-                period,
-                stdDev,
-                series: [upperSeries, middleSeries, lowerSeries]
+                    const upperSeries = this.chart.addLineSeries({
+                        color: '#9C27B0',
+                        lineWidth: 1,
+                        title: `BB Upper(${period})`
+                    });
+
+                    const middleSeries = this.chart.addLineSeries({
+                        color: '#9C27B0',
+                        lineWidth: 1,
+                        lineStyle: 2,
+                        title: `BB Middle(${period})`
+                    });
+
+                    const lowerSeries = this.chart.addLineSeries({
+                        color: '#9C27B0',
+                        lineWidth: 1,
+                        title: `BB Lower(${period})`
+                    });
+
+                    upperSeries.setData(upperData);
+                    middleSeries.setData(smaFormatted);
+                    lowerSeries.setData(lowerData);
+
+                    this.indicators.push({
+                        type: 'BB',
+                        period,
+                        stdDev: stdDevMultiplier,
+                        series: [upperSeries, middleSeries, lowerSeries]
+                    });
+                }
+            }).catch(error => {
+                console.error('Failed to fetch Bollinger Bands from API:', error);
+                // Fallback to client-side calculation
+                const bbData = this.calculateBollingerBands(this.data, period, stdDevMultiplier);
+
+                const upperSeries = this.chart.addLineSeries({
+                    color: '#9C27B0',
+                    lineWidth: 1,
+                    title: `BB Upper(${period})`
+                });
+
+                const middleSeries = this.chart.addLineSeries({
+                    color: '#9C27B0',
+                    lineWidth: 1,
+                    lineStyle: 2,
+                    title: `BB Middle(${period})`
+                });
+
+                const lowerSeries = this.chart.addLineSeries({
+                    color: '#9C27B0',
+                    lineWidth: 1,
+                    title: `BB Lower(${period})`
+                });
+
+                upperSeries.setData(bbData.upper);
+                middleSeries.setData(bbData.middle);
+                lowerSeries.setData(bbData.lower);
+
+                this.indicators.push({
+                    type: 'BB',
+                    period,
+                    stdDev: stdDevMultiplier,
+                    series: [upperSeries, middleSeries, lowerSeries]
+                });
             });
         }
 
@@ -361,7 +527,7 @@
                     this.addEMA(20);
                     break;
                 case 'WMA':
-                    this.addSMA(20); // Simplified to SMA for now
+                    this.addWMA(20);
                     break;
                 case 'RSI':
                     this.addRSI(14);
@@ -411,40 +577,54 @@
         }
 
         /**
-         * Add RSI indicator
+         * Add RSI indicator - Fetch from API
          */
         addRSI(period) {
-            if (typeof window.FMPIndicators === 'undefined') return;
+            this.fetchIndicatorFromAPI('rsi', period).then(data => {
+                if (data && data.length > 0) {
+                    const rsiSeries = this.chart.addLineSeries({
+                        color: '#9C27B0',
+                        lineWidth: 2,
+                        priceScaleId: 'rsi',
+                        title: `RSI(${period})`
+                    });
 
-            const rsiData = window.FMPIndicators.calculateRSI(this.data, period);
+                    rsiSeries.setData(this.formatIndicatorData(data));
 
-            const rsiSeries = this.chart.addLineSeries({
-                color: '#9C27B0',
-                lineWidth: 2,
-                priceScaleId: 'rsi',
-                title: `RSI(${period})`
+                    // Add reference lines at 30 and 70
+                    rsiSeries.createPriceLine({
+                        price: 70,
+                        color: '#ef5350',
+                        lineWidth: 1,
+                        lineStyle: 2,
+                        axisLabelVisible: false,
+                    });
+
+                    rsiSeries.createPriceLine({
+                        price: 30,
+                        color: '#26a69a',
+                        lineWidth: 1,
+                        lineStyle: 2,
+                        axisLabelVisible: false,
+                    });
+
+                    this.indicators.push({ type: 'RSI', period, series: rsiSeries });
+                }
+            }).catch(error => {
+                console.error('Failed to fetch RSI:', error);
+                // Fallback to client-side calculation
+                if (typeof window.FMPIndicators !== 'undefined') {
+                    const rsiData = window.FMPIndicators.calculateRSI(this.data, period);
+                    const rsiSeries = this.chart.addLineSeries({
+                        color: '#9C27B0',
+                        lineWidth: 2,
+                        priceScaleId: 'rsi',
+                        title: `RSI(${period})`
+                    });
+                    rsiSeries.setData(rsiData);
+                    this.indicators.push({ type: 'RSI', period, series: rsiSeries });
+                }
             });
-
-            rsiSeries.setData(rsiData);
-
-            // Add reference lines at 30 and 70
-            rsiSeries.createPriceLine({
-                price: 70,
-                color: '#ef5350',
-                lineWidth: 1,
-                lineStyle: 2,
-                axisLabelVisible: false,
-            });
-
-            rsiSeries.createPriceLine({
-                price: 30,
-                color: '#26a69a',
-                lineWidth: 1,
-                lineStyle: 2,
-                axisLabelVisible: false,
-            });
-
-            this.indicators.push({ type: 'RSI', period, series: rsiSeries });
         }
 
         /**

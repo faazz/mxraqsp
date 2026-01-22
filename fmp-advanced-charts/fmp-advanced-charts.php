@@ -244,3 +244,31 @@ function fmp_charts_get_quote() {
 }
 add_action('wp_ajax_fmp_get_quote', 'fmp_charts_get_quote');
 add_action('wp_ajax_nopriv_fmp_get_quote', 'fmp_charts_get_quote');
+
+/**
+ * AJAX handler for technical indicators.
+ */
+function fmp_charts_get_indicator() {
+    check_ajax_referer('fmp_charts_nonce', 'nonce');
+
+    $symbol = sanitize_text_field($_POST['symbol'] ?? '');
+    $indicator = sanitize_text_field($_POST['indicator'] ?? '');
+    $period = absint($_POST['period'] ?? 14);
+    $timeframe = sanitize_text_field($_POST['timeframe'] ?? '1day');
+
+    if (empty($symbol) || empty($indicator)) {
+        wp_send_json_error(array('message' => __('Symbol and indicator are required', 'fmp-advanced-charts')));
+        return;
+    }
+
+    $api_handler = new FMP_Advanced_Charts_API_Handler();
+    $data = $api_handler->get_technical_indicator($indicator, $symbol, $period, $timeframe);
+
+    if (is_wp_error($data)) {
+        wp_send_json_error(array('message' => $data->get_error_message()));
+    } else {
+        wp_send_json_success($data);
+    }
+}
+add_action('wp_ajax_fmp_get_indicator', 'fmp_charts_get_indicator');
+add_action('wp_ajax_nopriv_fmp_get_indicator', 'fmp_charts_get_indicator');
